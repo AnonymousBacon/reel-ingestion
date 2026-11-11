@@ -9,7 +9,7 @@ brief.json that is the ONLY file the agents need to read.
 import json, re, subprocess, sys
 from datetime import datetime, timezone
 from config import DATA, WHISPER_MODEL, allowed
-from media import streams
+from media import streams, safe_cdn, FFMPEG_PROTOCOLS
 
 URL_RE = re.compile(r"https?://[^\s)\]>\"']+")
 GH_RE = re.compile(r"github\.com/([A-Za-z0-9-]+/[A-Za-z0-9_.-]+)")
@@ -28,7 +28,14 @@ def video_src(d):
     if (d / "video.mp4").exists():
         return str(d / "video.mp4")
     meta = json.loads((d / "meta.json").read_text())
-    return meta.get("_video_url") or streams(meta)[1]
+    return safe_cdn(meta.get("_video_url")) or streams(meta)[1]
+
+
+def ffmpeg_in(src):
+    """Input args for ffmpeg; remote inputs may use only https (no file:, concat: or pipe:)."""
+    if src.startswith("https://"):
+        return ["-protocol_whitelist", FFMPEG_PROTOCOLS, "-i", src]
+    return ["-i", src]
 
 
 def transcribe(d):
@@ -36,7 +43,7 @@ def transcribe(d):
     if not src:
         return "", []
     wav = d / "audio.wav"
-    sh("ffmpeg", "-y", "-i", src, "-vn", "-ar", "16000", "-ac", "1", str(wav))
+    sh("ffmpeg", "-y", *ffmpeg_in(src), "-vn", "-ar", "16000", "-ac", "1", str(wav))
     import mlx_whisper
     r = mlx_whisper.transcribe(str(wav), path_or_hf_repo=WHISPER_MODEL, language="en")
     text = r["text"].strip()
@@ -60,7 +67,7 @@ def frames(d, duration):
         t = duration * (i + 0.5) / n
         f = d / f"frame_{i}.jpg"
         if not f.exists():   # -ss before -i seeks without reading the whole stream
-            sh("ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", src, "-frames:v", "1", "-vf", "scale=720:-2", str(f))
+            sh("ffmpeg", "-y", "-ss", f"{t:.2f}", *ffmpeg_in(src), "-frames:v", "1", "-vf", "scale=720:-2", str(f))
         out.append(f)
     return out
 

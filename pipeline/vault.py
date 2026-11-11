@@ -50,8 +50,16 @@ def safe_title(t):
     return t[:60].rstrip()
 
 
+def inert(text):
+    """Make stranger-written text display-only in Obsidian: no raw HTML (e.g. a tracking
+    <img>, <iframe>), no wikilinks or embeds that add fake graph edges, no code blocks
+    that a plugin like Dataview or Templater could run."""
+    return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace("[[", "\\[\\[").replace("![", "!\\[").replace("```", "ʼʼʼ"))
+
+
 def quote(text):
-    return "\n".join("> " + ln if ln.strip() else ">" for ln in text.strip().splitlines()) or "> (empty)"
+    return "\n".join("> " + inert(ln) if ln.strip() else ">" for ln in text.strip().splitlines()) or "> (empty)"
 
 
 def bullets(items):

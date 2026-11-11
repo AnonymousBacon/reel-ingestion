@@ -16,7 +16,7 @@ On 3 or 4, stop and ask the user.
 """
 import json, re, sys, time
 from playwright.sync_api import sync_playwright
-from media import streams
+from media import streams, safe_cdn
 from config import (COLLECTIONS, PROFILE, DATA, SYNC, IG_APP_ID, REQUEST_GAP_S, MAX_NEW_PER_RUN,
                     INSTAGRAM_USER, ALL_SAVED, allowed, code_dir)
 
@@ -164,8 +164,9 @@ def save_media(ctx, d, item):
     if not audio and not video:   # photo or carousel
         for j, m in enumerate(item.get("carousel_media") or [item]):
             c = m.get("image_versions2", {}).get("candidates", [])
-            if c and not (d / f"img_{j}.jpg").exists():
-                b = get_bytes(ctx, c[0]["url"])
+            url = safe_cdn(c[0]["url"]) if c else None
+            if url and not (d / f"img_{j}.jpg").exists():
+                b = get_bytes(ctx, url)
                 (d / f"img_{j}.jpg").write_bytes(b) if b else failed.append(f"img_{j}")
     return failed
 

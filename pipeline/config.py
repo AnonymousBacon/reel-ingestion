@@ -1,6 +1,7 @@
 """Shared settings, loaded from config.yaml (path in $REEL_CONFIG, else <repo>/config.yaml).
 Copy config.example.yaml to config.yaml to start. Every script imports from here."""
 import os
+import re
 from pathlib import Path
 import yaml
 
@@ -55,6 +56,9 @@ def allowed(collection: str) -> None:
 
 
 def code_dir(code: str) -> Path:
+    # Shortcodes become folder names, so allow only Instagram's alphabet (no '/', no '..').
+    if not re.fullmatch(r"[A-Za-z0-9_-]{5,40}", code or ""):
+        raise SystemExit(f"Refusing unexpected shortcode {code!r}")
     d = DATA / code
     d.mkdir(parents=True, exist_ok=True)
     return d

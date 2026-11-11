@@ -1,4 +1,6 @@
-playwright
-mlx-whisper
-rapidocr-onnxruntime
-pyyaml
+# Pinned so a compromised or breaking release can't slip in on a fresh install.
+# Upgrade deliberately: bump a version, re-run a collection, check `vault.py verify`.
+playwright==1.65.0
+mlx-whisper==0.4.3
+rapidocr-onnxruntime==1.4.4
+PyYAML==6.0.3
