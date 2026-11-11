@@ -3,7 +3,7 @@ type: index
 ---
 # Start here
 
-Open the **[[Dashboard.base|Dashboard]]** for your to-do views. New to Obsidian? See the **[[Glossary]]**.
+Start with **[[Playbooks]]**: checklists that merge your reels by goal, so you rarely need to open a reel itself. The **[[Dashboard.base|Dashboard]]** lists every reel. New to Obsidian? See the **[[Glossary]]**.
 
 ## Reading the graph
 🟡 **Paths** · 🔵 **Topics** · 🟣 **Tools** · 🟢 **reels rated 3/3** · ⚪ other reels.
@@ -14,7 +14,7 @@ The graph hides the collection hubs, this note, and reels rated 1/3. Click any n
 - **Topics/**: a fixed topic list (from `config.yaml`). A new topic gets added only when 3+ reels need it.
 - **Tools/**: one note per tool that shows up in 2+ reels, with its real install command and an honest read on the hype.
 - **Collections/**: one note per Instagram collection (hidden from the graph).
-- **Paths/**: ordered plans you build from the reels.
+- **Paths/**: playbooks (one goal, every reel merged into one checklist) and longer dated plans. New reels are filed into a playbook automatically.
 
 ## Fields you edit
 | Field | Values | Meaning |

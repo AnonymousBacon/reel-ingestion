@@ -15,6 +15,8 @@ Read `<data dir>/vault_context.json` once per batch. It holds:
 - `topics` and `topic_descriptions`: the only topics allowed.
 - `tools`: tools that already have vault notes.
 - `existing_titles`: titles already taken.
+- `playbooks`: {name: goal} for each playbook (an ordered checklist that merges every reel on one goal),
+  and `vault`: the vault folder.
 
 For each code, read `brief.json`, plus `corrections.json` and `links.json` if they exist. Don't
 open frames or other files. Then write `note.json` in the same folder:
@@ -33,13 +35,21 @@ open frames or other files. Then write `note.json` in the same folder:
  "setup": ["real first steps from links.json install / docs; never 'comment X'"],
  "watch_out": ["from links.json risks + your own read"],
  "on_screen": ["useful text/diagrams from ocr"],
- "tools": ["names from vault_context.tools that this reel features, plus any tool it centers on"]}
+ "tools": ["names from vault_context.tools that this reel features, plus any tool it centers on"],
+ "playbook": "exact name from vault_context.playbooks, or null",
+ "playbook_step": "one checkbox line: an imperative action with the concrete detail (command, setting, name)",
+ "playbook_skip": "instead of a step: why it adds nothing (repeats an existing step, ad, hype)",
+ "proposed_playbook": "only when playbook is null and the reel has a real action: a short goal-style name"}
 ```
 
 Rules:
 - **URLs:** copy only from `links.json`, `brief.urls` or `verified_repos`. The renderer deletes any other URL.
 - **Topics:** use only the allowed list. If a reel needs a topic that isn't there, put the new
   name in `proposed_topics` and still pick the closest allowed topic, or "Misc".
+- **Playbook:** pick the one whose goal the reel moves forward. Before writing the step, read that
+  playbook once per batch (`<vault>/Paths/<name>.md`). If an existing step already covers the reel,
+  set `playbook_skip` instead of `playbook_step`. Use `playbook: null` for jokes and vibes; the
+  renderer lists relevance-1 reels with no playbook under "Nothing to act on".
 - **Title:** name what it does, like "Vimium", "Legal checklist for your app" or "ML security roadmap".
 - Write plainly: short sentences, no hype words, define jargon on first use. Leave optional keys out when empty.
 - Don't copy the caption or transcript. The renderer adds those.

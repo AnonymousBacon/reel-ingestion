@@ -14,7 +14,8 @@ import yaml
 from config import (VAULT, SYNC, DATA, ROOT, TOPICS, TOPIC_DESCRIPTIONS, EFFORTS, COLLECTIONS,
                     USER_PROFILE, RELEVANCE, allowed)
 
-REELS, TOPIC_DIR, TOOL_DIR, COLL_DIR = (VAULT / x for x in ("Reels", "Topics", "Tools", "Collections"))
+REELS, TOPIC_DIR, TOOL_DIR, COLL_DIR, PATHS = (VAULT / x for x in ("Reels", "Topics", "Tools", "Collections", "Paths"))
+HUB = VAULT / "Playbooks.md"
 LINK_RE = re.compile(r"\[\[([^\]|#]+)")
 URL_RE = re.compile(r"https?://[^\s)\]>\"']+")
 REQUIRED = ["type", "what", "creator", "url", "collection", "topics", "relevance",
@@ -74,6 +75,56 @@ def upsert_list(note: Path, header_md: str, entries: dict, sort_key=None):
                     encoding="utf-8")
 
 
+# ---------- playbooks ----------
+def playbooks():
+    """{name: goal} for every note in Paths/ with `type: playbook`."""
+    out = {}
+    for p in PATHS.glob("*.md"):
+        fm, _ = front(p)
+        if fm.get("type") == "playbook":
+            out[p.stem] = fm.get("goal", "")
+    return out
+
+
+def add_line(text, header, line, before=("## Skip", "## Sources")):
+    """Append `line` to the end of section `header`; create the section (above `before`) if missing."""
+    if header in text:
+        start = text.index(header) + len(header)
+        nxt = text.find("\n## ", start)
+        head, rest = (text, "") if nxt == -1 else (text[:nxt], text[nxt:])
+        return head.rstrip("\n") + "\n" + line + "\n" + ("\n" + rest.lstrip("\n") if rest else "")
+    cuts = [i for h in before if (i := text.find("\n" + h)) != -1]
+    if cuts:
+        i = min(cuts)
+        return text[:i].rstrip("\n") + f"\n\n{header}\n{line}\n\n" + text[i:].lstrip("\n")
+    return text.rstrip("\n") + f"\n\n{header}\n{line}\n"
+
+
+def append_inline(text, header, link):
+    """Add ' · [[X]]' to the one-line list under `header` (Sources, Nothing to act on)."""
+    m = re.search(re.escape(header) + r"\n(.*)", text)
+    if m and m.group(1).strip():
+        return text[:m.end()] + " · " + link + text[m.end():]
+    return add_line(text, header, link, before=())
+
+
+def file_in_playbook(name, reel, step, skip):
+    """New steps land in '## New from reels' so existing, hand-ordered steps are never rewritten."""
+    p = PATHS / f"{name}.md"
+    t = p.read_text(encoding="utf-8")
+    link = f"[[{reel}]]"
+    t = add_line(t, "## Skip", f"- {link}: {skip}", before=("## Sources",)) if skip else \
+        add_line(t, "## New from reels", f"- [ ] {step} → {link}")
+    t = append_inline(t, "## Sources", link)
+    t = re.sub(r"^reels: (\d+)$", lambda m: f"reels: {int(m.group(1)) + 1}", t, count=1, flags=re.M)
+    p.write_text(t, encoding="utf-8")
+    if HUB.exists():   # keep the hub table's count in step
+        h = HUB.read_text(encoding="utf-8")
+        h = re.sub(r"(\| \[\[" + re.escape(name) + r"\]\] \|.*\| )(\d+)( \|)",
+                   lambda m: f"{m.group(1)}{int(m.group(2)) + 1}{m.group(3)}", h, count=1)
+        HUB.write_text(h, encoding="utf-8")
+
+
 # ---------- init ----------
 def cmd_init():
     """Create the vault skeleton. Existing files are left untouched."""
@@ -106,6 +157,8 @@ def cmd_context():
         "tools": {p.stem: next((l for l in p.read_text().splitlines() if l.startswith("**Repo:**")), "")
                   for p in TOOL_DIR.glob("*.md")},
         "existing_titles": sorted(p.stem for p in REELS.glob("*.md")),
+        "playbooks": playbooks(),
+        "vault": str(VAULT),
     }
     out = DATA / "vault_context.json"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -131,6 +184,7 @@ def render_note(b, n, corr, allowed_urls, dropped):
     if repos: fm["repo"] = repos[0] if len(repos) == 1 else repos
     fm |= {"collection": b["collection"], "topics": [f"[[{t}]]" for t in n["topics"]]}
     if tools: fm["tools"] = [f"[[{t}]]" for t in tools]
+    if n.get("playbook"): fm["playbook"] = f"[[{n['playbook']}]]"
     fm |= {"relevance": int(n["relevance"]), "effort": n["effort"], "status": "inbox",
            "cost": n.get("cost", "free"), "posted": b["posted"], "duration_s": b["duration_s"], "code": b["code"]}
 
@@ -166,11 +220,13 @@ def cmd_render(collection):
     idx = reel_index()
     codes_in_vault = {fm.get("code") for fm in idx.values()}
     topics_ok = set(all_topics())
+    books = playbooks()
     report = {"added": [], "skipped_existing": [], "dropped_urls": {}, "proposed_topics": {},
-              "empty_transcript": work.get("empty_transcript", []), "tools_needing_notes": [], "not_ready": []}
+              "proposed_playbooks": {}, "playbook_steps": {}, "empty_transcript": work.get("empty_transcript", []),
+              "tools_needing_notes": [], "not_ready": []}
     mentions_p = DATA / "tool_mentions.json"
     mentions = json.loads(mentions_p.read_text()) if mentions_p.exists() else {}
-    new = {}   # title -> fm
+    new, drafts = {}, {}   # title -> fm, title -> note.json
 
     for code in work["all"]:
         d = DATA / code
@@ -191,6 +247,10 @@ def cmd_render(collection):
         for t in n.get("tools", []):
             mentions.setdefault(t, [])
             if code not in mentions[t]: mentions[t].append(code)
+        if n.get("playbook") not in books:      # unknown name -> proposal, like topics (3-reel rule)
+            prop = n.get("proposed_playbook") or n.get("playbook")
+            if prop: report["proposed_playbooks"].setdefault(prop, []).append(code)
+            n["playbook"], n["_proposed"] = None, bool(prop)
 
         title = safe_title(n["title"]); base = title; k = 2
         while (REELS / f"{title}.md").exists() or title in new:
@@ -201,6 +261,7 @@ def cmd_render(collection):
         (REELS / f"{title}.md").write_text(md, encoding="utf-8")
         if dropped: report["dropped_urls"][title] = dropped
         new[title] = fm
+        drafts[title] = n
         report["added"].append(title)
 
     mentions_p.write_text(json.dumps(mentions, indent=1))
@@ -217,6 +278,14 @@ def cmd_render(collection):
     for t, fm in new.items():
         for tool in fm.get("tools", []):
             upsert_list(TOOL_DIR / f"{strip_link(tool)}.md", "", {t: line(t)})
+    for t, n in drafts.items():
+        pb = n.get("playbook")
+        if pb:
+            file_in_playbook(pb, t, n.get("playbook_step") or n["what"], n.get("playbook_skip"))
+            report["playbook_steps"].setdefault(pb, []).append(t)
+        elif int(n["relevance"]) == 1 and HUB.exists() and not n.get("_proposed"):
+            HUB.write_text(append_inline(HUB.read_text(encoding="utf-8"), "## Nothing to act on", f"[[{t}]]"),
+                           encoding="utf-8")
     if new:
         upsert_list(COLL_DIR / f"{collection}.md",
                     f"---\ntype: collection\n---\n# {collection}\n\nInstagram: {COLLECTIONS[collection]}\n",
@@ -233,7 +302,7 @@ def cmd_render(collection):
     sh = VAULT / "Start here.md"
     txt = sh.read_text(encoding="utf-8")
     counts = {c: sum(1 for fm in idx.values() if fm.get("collection") == c) for c in s["synced"]}
-    lines = [f"- [[{c}]]: {counts[c]} reel{'s' * (counts[c] != 1)},{date.fromisoformat(v['date']).strftime('%b %-d, %Y')}"
+    lines = [f"- [[{c}]]: {counts[c]} reel{'s' * (counts[c] != 1)}, {date.fromisoformat(v['date']).strftime('%b %-d, %Y')}"
              for c, v in s["synced"].items()]
     todo = [c for c in COLLECTIONS if c not in s["synced"]]
     if todo: lines.append("- Still to do: " + ", ".join(todo))

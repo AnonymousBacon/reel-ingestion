@@ -55,6 +55,10 @@ Report from `<data_dir>/report_<C>.json`:
 - `empty_transcript`
 - `dropped_urls`: an agent cited an unverified link
 - `proposed_topics`: 3+ reels → ask the user, then add the topic to `config.yaml` and `Topics/`
+- `playbook_steps`: new steps sit under `## New from reels` in each playbook. Tell the user which playbooks
+  grew; moving them into the ordered steps is the user's call (or ask before doing it)
+- `proposed_playbooks`: 3+ reels → ask the user, then create `Paths/<Name>.md` with `type: playbook`,
+  `goal:` and `reels:`, and add a row to `Playbooks.md`
 - `tools_needing_notes`: write `Tools/<Tool>.md` with what it is, its repo, real numbers, install and a verdict
 
 ## Token rules

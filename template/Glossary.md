@@ -39,6 +39,7 @@ Obsidian terms, each tied to how this vault uses it. Back to [[Start here]].
 - **Tool note**: a hub for a tool that shows up in 2+ reels.
 - **Collection note**: mirrors one Instagram saved collection.
 - **Path**: an ordered plan built from reels, like a step-by-step study plan.
+- **Playbook**: one note per goal that merges every reel on it into one ordered checklist. Each step links to its source reel. New reels land under *New from reels*.
 - **Hub**: any note that mostly exists to link other notes (Topics, Tools, Collections).
 - **Relevance (1–3)**: how much a reel applies to you now. 3 = act on it soon.
 - **Status**: `inbox` (new), `try`, `tried`, `skip`.
