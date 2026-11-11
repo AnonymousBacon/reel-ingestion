@@ -1,0 +1,4 @@
+playwright
+mlx-whisper
+rapidocr-onnxruntime
+pyyaml

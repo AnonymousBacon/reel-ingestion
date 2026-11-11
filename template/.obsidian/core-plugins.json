@@ -1,0 +1,12 @@
+{
+  "bases": true,
+  "properties": true,
+  "graph": true,
+  "backlink": true,
+  "outgoing-link": true,
+  "file-explorer": true,
+  "global-search": true,
+  "switcher": true,
+  "command-palette": true,
+  "page-preview": true
+}

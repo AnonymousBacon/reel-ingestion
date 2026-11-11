@@ -1,0 +1,75 @@
+filters:
+  and:
+    - file.inFolder("Reels")
+properties:
+  note.relevance:
+    displayName: Fit (1-3)
+  note.effort:
+    displayName: Effort
+  note.status:
+    displayName: Status
+  note.what:
+    displayName: What it is
+  note.topics:
+    displayName: Topics
+  note.collection:
+    displayName: Collection
+views:
+  - type: table
+    name: Quick wins
+    filters:
+      and:
+        - status == "inbox" || status == "try"
+        - relevance >= 3
+        - effort == "5 min" || effort == "1 hour"
+    groupBy:
+      property: effort
+      direction: ASC
+    order:
+      - file.name
+      - what
+      - effort
+      - topics
+  - type: table
+    name: Worth trying
+    filters:
+      and:
+        - status == "inbox" || status == "try"
+        - relevance >= 2
+    groupBy:
+      property: relevance
+      direction: DESC
+    order:
+      - file.name
+      - what
+      - relevance
+      - effort
+      - status
+  - type: table
+    name: Trying / tried
+    filters:
+      or:
+        - status == "try"
+        - status == "tried"
+    groupBy:
+      property: status
+      direction: ASC
+    order:
+      - file.name
+      - what
+      - status
+  - type: table
+    name: Everything
+    filters:
+      and:
+        - status != "skip"
+    groupBy:
+      property: collection
+      direction: ASC
+    order:
+      - file.name
+      - what
+      - relevance
+      - effort
+      - status
+      - collection

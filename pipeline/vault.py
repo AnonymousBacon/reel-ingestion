@@ -1,0 +1,278 @@
+"""Steps 7-10: everything that touches the vault. Deterministic, no LLM tokens.
+
+  python vault.py init                 # create the vault skeleton from template/ (never overwrites)
+  python vault.py context              # -> data/vault_context.json (profile, topics, tools, titles) for agents
+  python vault.py render "cool cs"     # note.json -> Reels/*.md, Topics, Tools, Collections, Start here, .sync.json
+  python vault.py verify               # wikilinks, YAML, topic list
+
+Never overwrites an existing reel note and never deletes anything (hard rule 3).
+"""
+import json, re, shutil, sys
+from datetime import date
+from pathlib import Path
+import yaml
+from config import (VAULT, SYNC, DATA, ROOT, TOPICS, TOPIC_DESCRIPTIONS, EFFORTS, COLLECTIONS,
+                    USER_PROFILE, RELEVANCE, allowed)
+
+REELS, TOPIC_DIR, TOOL_DIR, COLL_DIR = (VAULT / x for x in ("Reels", "Topics", "Tools", "Collections"))
+LINK_RE = re.compile(r"\[\[([^\]|#]+)")
+URL_RE = re.compile(r"https?://[^\s)\]>\"']+")
+REQUIRED = ["type", "what", "creator", "url", "collection", "topics", "relevance",
+            "effort", "status", "cost", "posted", "duration_s", "code"]
+
+
+# ---------- helpers ----------
+def front(p: Path):
+    s = p.read_text(encoding="utf-8")
+    if not s.startswith("---\n"):
+        return {}, s
+    head, body = s[4:].split("\n---\n", 1)
+    return yaml.safe_load(head) or {}, body
+
+
+def strip_link(x):  # "[[Topic]]" -> "Topic"
+    return x.strip("[]") if isinstance(x, str) else x
+
+
+def all_topics():
+    return sorted(set(TOPICS) | {p.stem for p in TOPIC_DIR.glob("*.md")})
+
+
+def reel_index():
+    """{title: frontmatter} for every reel note."""
+    return {p.stem: front(p)[0] for p in REELS.glob("*.md")}
+
+
+def safe_title(t):
+    t = t.replace("/", "-")
+    t = re.sub(r'[\\:*?"<>|#^\[\]]', "", t).strip()
+    return t[:60].rstrip()
+
+
+def quote(text):
+    return "\n".join("> " + ln if ln.strip() else ">" for ln in text.strip().splitlines()) or "> (empty)"
+
+
+def bullets(items):
+    return "\n".join(f"- {x}" for x in items)
+
+
+def upsert_list(note: Path, header_md: str, entries: dict, sort_key=None):
+    """Merge `entries` {title: line} into the '## Reels' list of `note`, keeping other text."""
+    text = note.read_text(encoding="utf-8") if note.exists() else header_md
+    if "## Reels" not in text:
+        text = text.rstrip() + "\n\n## Reels\n"
+    before, after = text.split("## Reels", 1)
+    lines = after.lstrip("\n").splitlines()
+    items = [l for l in lines if l.startswith("- [[")]
+    rest = [l for l in lines if not l.startswith("- [[")]
+    have = {LINK_RE.search(l).group(1) for l in items}
+    items += [line for t, line in entries.items() if t not in have]
+    if sort_key:
+        items.sort(key=lambda l: sort_key(LINK_RE.search(l).group(1)))   # stable: keeps prior order
+    note.write_text(before + "## Reels\n" + "\n".join(items) + "\n" + ("\n".join(rest) + "\n" if rest else ""),
+                    encoding="utf-8")
+
+
+# ---------- init ----------
+def cmd_init():
+    """Create the vault skeleton. Existing files are left untouched."""
+    made = []
+    def put(path: Path, text=None, src=None):
+        if path.exists():
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, path) if src else path.write_text(text, encoding="utf-8")
+        made.append(str(path.relative_to(VAULT)))
+    for src in (ROOT / "template").rglob("*"):
+        if src.is_file() and src.name != ".DS_Store":
+            put(VAULT / src.relative_to(ROOT / "template"), src=src)
+    for d in ("Reels", "Topics", "Tools", "Collections", "Paths"):
+        (VAULT / d).mkdir(parents=True, exist_ok=True)
+    for name, desc in TOPIC_DESCRIPTIONS.items():
+        put(TOPIC_DIR / f"{name}.md", f"---\ntype: topic\n---\n# {name}\n\n{desc}\n\n## Reels\n")
+    put(SYNC, json.dumps({"scope": "saved reels only; collections: " + ", ".join(COLLECTIONS), "synced": {}}, indent=1))
+    print(f"vault: {VAULT}\ncreated {len(made)} files" + "".join(f"\n  {m}" for m in made))
+
+
+# ---------- context ----------
+def cmd_context():
+    ctx = {
+        "profile": USER_PROFILE,
+        "relevance": RELEVANCE,
+        "topic_descriptions": {t: TOPIC_DESCRIPTIONS.get(t, "") for t in all_topics()},
+        "topics": all_topics(),
+        "efforts": EFFORTS,
+        "tools": {p.stem: next((l for l in p.read_text().splitlines() if l.startswith("**Repo:**")), "")
+                  for p in TOOL_DIR.glob("*.md")},
+        "existing_titles": sorted(p.stem for p in REELS.glob("*.md")),
+    }
+    out = DATA / "vault_context.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(ctx, indent=1, ensure_ascii=False))
+    print(out)
+
+
+# ---------- render ----------
+def render_note(b, n, corr, allowed_urls, dropped):
+    def clean(s):  # rule 4: remove any URL that no source backs up
+        for u in URL_RE.findall(s):
+            if u.rstrip(".,") not in allowed_urls:
+                dropped.append(u); s = s.replace(u, "(link not verified)")
+        return s
+
+    links = [l for l in n.get("links", []) if l["url"] in allowed_urls]
+    dropped += [l["url"] for l in n.get("links", []) if l["url"] not in allowed_urls]
+    repos = sorted({l["url"] for l in links if re.match(r"https://github\.com/[^/]+/[^/]+/?$", l["url"])})
+    tools = [t for t in n.get("tools", []) if (TOOL_DIR / f"{t}.md").exists()]
+
+    fm = {"type": "reel", "what": n["what"], "creator": b["creator"],
+          "url": f"https://www.instagram.com/reel/{b['code']}/"}
+    if repos: fm["repo"] = repos[0] if len(repos) == 1 else repos
+    fm |= {"collection": b["collection"], "topics": [f"[[{t}]]" for t in n["topics"]]}
+    if tools: fm["tools"] = [f"[[{t}]]" for t in tools]
+    fm |= {"relevance": int(n["relevance"]), "effort": n["effort"], "status": "inbox",
+           "cost": n.get("cost", "free"), "posted": b["posted"], "duration_s": b["duration_s"], "code": b["code"]}
+
+    sc = n.get("showcasing", {})
+    rows = "\n".join(f"| **{k.title()}** | {clean(sc[k])} |" for k in ("what", "who", "when", "where", "why") if sc.get(k))
+    parts = [f"---\n{yaml.safe_dump(fm, sort_keys=False, allow_unicode=True)}---\n", f"# {n['title']}\n"]
+    if repos:
+        parts.append("**Repo:** " + " · ".join(f"[{u[19:]}]({u})" for u in repos) + "\n")
+    parts += [f"> **TL;DR:** {clean(n['tldr'])}\n", f"## What it's showcasing\n| | |\n|---|---|\n{rows}\n",
+              f"## For you\n{bullets(clean(x) for x in n['for_you'])}\n"]
+    link_lines = [f"{l['name']} — {l['url']}" for l in links] + [f"Not found: {m}" for m in n.get("missing", [])]
+    if link_lines: parts.append("## Links & exact names\n" + bullets(link_lines) + "\n")
+    for key, head in (("setup", "Setup"), ("watch_out", "Watch out"), ("on_screen", "On screen")):
+        if n.get(key):
+            body = "\n".join(f"{i}. {clean(x)}" for i, x in enumerate(n[key], 1)) if key == "setup" \
+                else bullets(clean(x) for x in n[key])
+            parts.append(f"## {head}\n{body}\n")
+    if b["caption"]:
+        parts.append("> [!quote]- Caption\n" + quote(b["caption"]) + "\n")
+    tx = b["transcript"]
+    for f in corr.get("fixes", []):          # agent returns small {heard, actual, source} diffs, not a rewrite
+        tx = tx.replace(f["heard"], f["actual"])
+    notes = "".join(f"> *Correction: Whisper heard \"{f['heard']}\"; changed to \"{f['actual']}\" "
+                    f"(from the {f.get('source', 'screen')}).*\n>\n" for f in corr.get("fixes", []))
+    parts.append("> [!quote]- Transcript (Whisper)\n" + notes +
+                 (quote(tx) if tx else "> (no speech; music-only reel)") + "\n")
+    return fm, "\n".join(parts)
+
+
+def cmd_render(collection):
+    allowed(collection)
+    work = json.loads((DATA / f"work_{collection.replace(' ', '_')}.json").read_text())
+    idx = reel_index()
+    codes_in_vault = {fm.get("code") for fm in idx.values()}
+    topics_ok = set(all_topics())
+    report = {"added": [], "skipped_existing": [], "dropped_urls": {}, "proposed_topics": {},
+              "empty_transcript": work.get("empty_transcript", []), "tools_needing_notes": [], "not_ready": []}
+    mentions_p = DATA / "tool_mentions.json"
+    mentions = json.loads(mentions_p.read_text()) if mentions_p.exists() else {}
+    new = {}   # title -> fm
+
+    for code in work["all"]:
+        d = DATA / code
+        if code in codes_in_vault:
+            report["skipped_existing"].append(code); continue
+        if not (d / "note.json").exists():
+            report["not_ready"].append(code); continue
+        b = json.loads((d / "brief.json").read_text())
+        n = json.loads((d / "note.json").read_text())
+        corr = json.loads((d / "corrections.json").read_text()) if (d / "corrections.json").exists() else {}
+        found = json.loads((d / "links.json").read_text()) if (d / "links.json").exists() else {}
+        allowed_urls = set(b["urls"]) | {r["html_url"] for r in b["verified_repos"]} | \
+                       {l["url"] for l in found.get("links", [])}
+
+        bad = [t for t in n["topics"] if t not in topics_ok]
+        for t in bad: report["proposed_topics"].setdefault(t, []).append(code)
+        n["topics"] = [t for t in n["topics"] if t in topics_ok] or ["Misc"]
+        for t in n.get("tools", []):
+            mentions.setdefault(t, [])
+            if code not in mentions[t]: mentions[t].append(code)
+
+        title = safe_title(n["title"]); base = title; k = 2
+        while (REELS / f"{title}.md").exists() or title in new:
+            title = f"{base} ({k})"; k += 1
+        n["title"] = title
+        dropped = []
+        fm, md = render_note(b, n, corr, allowed_urls, dropped)
+        (REELS / f"{title}.md").write_text(md, encoding="utf-8")
+        if dropped: report["dropped_urls"][title] = dropped
+        new[title] = fm
+        report["added"].append(title)
+
+    mentions_p.write_text(json.dumps(mentions, indent=1))
+    report["tools_needing_notes"] = [t for t, cs in mentions.items()
+                                     if len(cs) >= 2 and not (TOOL_DIR / f"{t}.md").exists()]
+    idx.update(new)
+    rel = lambda t: -int((idx.get(t) or {}).get("relevance", 1))
+    line = lambda t: f"- [[{t}]]: {idx[t]['what']}"
+
+    for topic in all_topics():
+        hits = {t: line(t) for t, fm in new.items() if f"[[{topic}]]" in fm["topics"]}
+        if hits:
+            upsert_list(TOPIC_DIR / f"{topic}.md", f"---\ntype: topic\n---\n# {topic}\n", hits, rel)
+    for t, fm in new.items():
+        for tool in fm.get("tools", []):
+            upsert_list(TOOL_DIR / f"{strip_link(tool)}.md", "", {t: line(t)})
+    if new:
+        upsert_list(COLL_DIR / f"{collection}.md",
+                    f"---\ntype: collection\n---\n# {collection}\n\nInstagram: {COLLECTIONS[collection]}\n",
+                    {t: line(t) for t in new})
+
+    # .sync.json: append only (step 9)
+    s = json.loads(SYNC.read_text())
+    entry = s["synced"].setdefault(collection, {"date": "", "codes": []})
+    entry["codes"] += [fm["code"] for fm in new.values() if fm["code"] not in entry["codes"]]
+    entry["date"] = date.today().isoformat()
+    SYNC.write_text(json.dumps(s, indent=1))
+
+    # Start here: "Synced so far"
+    sh = VAULT / "Start here.md"
+    txt = sh.read_text(encoding="utf-8")
+    counts = {c: sum(1 for fm in idx.values() if fm.get("collection") == c) for c in s["synced"]}
+    lines = [f"- [[{c}]]: {counts[c]} reel{'s' * (counts[c] != 1)},{date.fromisoformat(v['date']).strftime('%b %-d, %Y')}"
+             for c, v in s["synced"].items()]
+    todo = [c for c in COLLECTIONS if c not in s["synced"]]
+    if todo: lines.append("- Still to do: " + ", ".join(todo))
+    txt = re.sub(r"## Synced so far\n(?:- .*\n?)*", "## Synced so far\n" + "\n".join(lines) + "\n", txt)
+    sh.write_text(txt, encoding="utf-8")
+
+    (DATA / f"report_{collection.replace(' ', '_')}.json").write_text(json.dumps(report, indent=1, ensure_ascii=False))
+    print(json.dumps({k: (len(v) if isinstance(v, (list, dict)) else v) for k, v in report.items()}))
+
+
+# ---------- verify ----------
+def cmd_verify():
+    names = {p.stem for p in VAULT.rglob("*") if p.is_file() and ".obsidian" not in p.parts} | \
+            {p.name for p in VAULT.rglob("*.base")}
+    problems = []
+    for p in list(VAULT.rglob("*.md")) + list(VAULT.rglob("*.base")):
+        if ".obsidian" in p.parts or p.name == "Welcome.md":
+            continue
+        text = re.sub(r"```.*?```|`[^`\n]*`", "", p.read_text(encoding="utf-8"), flags=re.S)  # code isn't linked
+        for t in LINK_RE.findall(text):
+            if t not in names:
+                problems.append(f"broken link [[{t}]] in {p.relative_to(VAULT)}")
+    topics = set(all_topics())
+    for p in REELS.glob("*.md"):
+        try:
+            fm, _ = front(p)
+        except Exception as e:
+            problems.append(f"bad YAML in {p.name}: {e}"); continue
+        miss = [k for k in REQUIRED if k not in fm]
+        if miss: problems.append(f"{p.name}: missing {miss}")
+        for t in fm.get("topics", []):
+            if strip_link(t) not in topics: problems.append(f"{p.name}: unknown topic {t}")
+        if fm.get("effort") not in EFFORTS: problems.append(f"{p.name}: effort {fm.get('effort')!r}")
+        if fm.get("relevance") not in (1, 2, 3): problems.append(f"{p.name}: relevance {fm.get('relevance')!r}")
+    print("\n".join(problems) or "vault OK")
+    sys.exit(1 if problems else 0)
+
+
+if __name__ == "__main__":
+    cmd, *args = sys.argv[1:] or ["help"]
+    {"init": cmd_init, "context": cmd_context, "render": lambda: cmd_render(args[0]), "verify": cmd_verify}.get(
+        cmd, lambda: print(__doc__))()

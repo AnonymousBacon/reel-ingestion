@@ -1,0 +1,41 @@
+# Copy to config.yaml (git-ignored) and fill in. Every script and agent reads this file.
+
+vault: ~/Documents/Vaults/IG Reels            # Obsidian vault folder; `python pipeline/vault.py init` creates it
+data_dir: ~/reel-pipeline/data                # raw JSON, audio, frames (keep it OUTSIDE the vault)
+browser_profile: ~/reel-pipeline/browser-profile
+
+instagram_user: your_handle                   # used only to build /<you>/saved/ URLs
+
+# Collections to ingest: name -> URL from your saved page.
+# `python pipeline/ig.py collections` prints these for you.
+collections:
+  example collection: https://www.instagram.com/your_handle/saved/example-collection/1234567890/
+
+# Collections the pipeline must never ingest, even if listed above by mistake.
+blocked: []
+
+rate_limit_s: 1.0                             # seconds between Instagram requests
+max_new_per_run: 100                          # stop and ask above this
+whisper_model: mlx-community/whisper-large-v3-turbo   # any mlx-whisper model
+
+# Fixed topic list. Agents may only use these; new ones are proposed, never auto-created.
+topics:
+  AI Coding Tools: Claude Code plugins, skills, agents, repos that change how you code
+  AI Engineering: LLMs, RAG, agents, evals, how companies ship AI
+  Learning Roadmaps: ordered paths and free course stacks
+  Productivity: workflow speedups, browser tools, working with agents
+  Security: cybersecurity, app legal/compliance risk
+  Web Dev & Design: frontend libraries, UI components, shipping web apps
+  Misc: jokes/vibes with nothing to act on
+
+# Who the notes are for. The categorizer uses this for the "For you" section and the
+# relevance score. Be concrete: goals, projects, stack, skill level.
+profile: |
+  Software engineering student looking for a summer internship.
+  Projects: a React + Django web app.
+  Uses Claude Code daily.
+
+relevance: |
+  3 = directly useful now (current goals, current projects, daily workflow)
+  2 = useful later
+  1 = low value or nothing to act on

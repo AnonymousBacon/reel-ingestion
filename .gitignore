@@ -1,0 +1,17 @@
+# personal settings and spec
+config.yaml
+REEL_PIPELINE.md
+
+# pipeline data and login (normally outside the repo, ignored here in case)
+data/
+browser-profile/
+.venv/
+__pycache__/
+*.pyc
+
+# Claude Code local state
+.claude/settings.local.json
+.claude/.cc-writes/
+pipeline/.claude/
+
+.DS_Store
