@@ -11,7 +11,8 @@ exists, it is the user's personal spec. Follow it too; the hard rules below alwa
 1. **Saved posts only.** Open only `/<instagram_user>/saved/…` pages and the reels found on them.
    Never the feed, profiles, DMs, stories or "more posts" grids. Never store anything else.
 2. **Allowed collections only:** the ones listed under `collections:` in `config.yaml`, never
-   anything in `blocked:`. A collection not listed → ask the user.
+   anything in `blocked:`. A collection not listed → ask the user. `"all saved"` (every saved post)
+   is allowed only when `ingest_all_saved: true` and `all-posts` isn't blocked; `config.py` enforces it.
 3. **No deleting vault files.** To retire a note, move it to `../_to_delete/` next to the vault and say so.
 4. **Never invent links.** Every URL must come from the reel itself or a source actually opened.
    If something can't be found, say what's missing. (`vault.py render` enforces this.)
@@ -35,8 +36,10 @@ Scripts write outside the repo (vault, data dir). In a sandboxed session, run th
 
 ## Run one collection (`C` = a name from `collections:`)
 ```
-$PY ig.py list "$C"             # exit 3 = login/challenge, 4 = rate limit: STOP and ask
-$PY ig.py fetch "$C"            # more than max_new_per_run new reels: confirm first
+$PY ig.py sync "$C"             # collection feed: ~20 reels/request, metadata + audio, no video download
+                                # exit 3 = login/challenge, 4 = rate limit: STOP and ask
+                                # exit 5 = feed unavailable: use `ig.py list "$C"` then `ig.py fetch "$C"`
+                                # "missing" files: re-run sync (it retries only what's missing)
 $PY process.py "$C"             # Whisper + frames + OCR + gh lookups -> brief.json, work_<C>.json
 $PY vault.py context            # vault_context.json (profile, topics, tools) for agents
 ```

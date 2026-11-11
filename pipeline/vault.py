@@ -167,15 +167,24 @@ def cmd_context():
 
 
 # ---------- render ----------
+def norm_url(u):
+    """Compare URLs without the noise text adds: trailing punctuation, '.git', a final '/'."""
+    u = u.rstrip(".,;:!?)]}'\"")
+    u = u[:-4] if u.endswith(".git") else u
+    return u.rstrip("/")
+
+
 def render_note(b, n, corr, allowed_urls, dropped):
+    ok = {norm_url(a) for a in allowed_urls}
+
     def clean(s):  # rule 4: remove any URL that no source backs up
         for u in URL_RE.findall(s):
-            if u.rstrip(".,") not in allowed_urls:
+            if norm_url(u) not in ok:
                 dropped.append(u); s = s.replace(u, "(link not verified)")
         return s
 
-    links = [l for l in n.get("links", []) if l["url"] in allowed_urls]
-    dropped += [l["url"] for l in n.get("links", []) if l["url"] not in allowed_urls]
+    links = [l for l in n.get("links", []) if norm_url(l["url"]) in ok]
+    dropped += [l["url"] for l in n.get("links", []) if norm_url(l["url"]) not in ok]
     repos = sorted({l["url"] for l in links if re.match(r"https://github\.com/[^/]+/[^/]+/?$", l["url"])})
     tools = [t for t in n.get("tools", []) if (TOOL_DIR / f"{t}.md").exists()]
 
@@ -313,6 +322,33 @@ def cmd_render(collection):
     print(json.dumps({k: (len(v) if isinstance(v, (list, dict)) else v) for k, v in report.items()}))
 
 
+# ---------- relink ----------
+def cmd_relink(codes):
+    """Re-render existing reel notes from their saved agent output (e.g. after a link-guard fix).
+    Only touches notes still exactly as rendered: status inbox and the drafted relevance."""
+    by_code = {fm.get("code"): t for t, fm in reel_index().items()}
+    books = playbooks()
+    for code in codes:
+        d, title = DATA / code, by_code.get(code)
+        if not title or not (d / "note.json").exists():
+            print(f"{code}: no note or no saved draft, skipped"); continue
+        n = json.loads((d / "note.json").read_text())
+        fm_now = reel_index()[title]
+        if fm_now.get("status") != "inbox" or fm_now.get("relevance") != int(n["relevance"]):
+            print(f"{code}: edited by you, skipped"); continue
+        b = json.loads((d / "brief.json").read_text())
+        corr = json.loads((d / "corrections.json").read_text()) if (d / "corrections.json").exists() else {}
+        found = json.loads((d / "links.json").read_text()) if (d / "links.json").exists() else {}
+        allowed_urls = set(b["urls"]) | {r["html_url"] for r in b["verified_repos"]} | \
+                       {l["url"] for l in found.get("links", [])}
+        n["title"], n["topics"] = title, [strip_link(t) for t in fm_now["topics"]]
+        n["playbook"] = n.get("playbook") if n.get("playbook") in books else None
+        dropped = []
+        _, md = render_note(b, n, corr, allowed_urls, dropped)
+        (REELS / f"{title}.md").write_text(md, encoding="utf-8")
+        print(f"{code}: {title}" + (f" (still unverified: {dropped})" if dropped else ""))
+
+
 # ---------- verify ----------
 def cmd_verify():
     names = {p.stem for p in VAULT.rglob("*") if p.is_file() and ".obsidian" not in p.parts} | \
@@ -343,5 +379,6 @@ def cmd_verify():
 
 if __name__ == "__main__":
     cmd, *args = sys.argv[1:] or ["help"]
-    {"init": cmd_init, "context": cmd_context, "render": lambda: cmd_render(args[0]), "verify": cmd_verify}.get(
+    {"init": cmd_init, "context": cmd_context, "render": lambda: cmd_render(args[0]), "verify": cmd_verify,
+     "relink": lambda: cmd_relink(args)}.get(
         cmd, lambda: print(__doc__))()

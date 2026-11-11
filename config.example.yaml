@@ -11,6 +11,12 @@ instagram_user: your_handle                   # used only to build /<you>/saved/
 collections:
   example collection: https://www.instagram.com/your_handle/saved/example-collection/1234567890/
 
+# Don't use collections? Set this to true and run `ig.py sync "all saved"` to ingest every
+# saved post. The categorizer sorts each reel into topics and playbooks either way, so you
+# never have to organize anything on Instagram. You can also use both: a reel already
+# ingested from a collection is skipped.
+ingest_all_saved: false
+
 # Collections the pipeline must never ingest, even if listed above by mistake.
 blocked: []
 

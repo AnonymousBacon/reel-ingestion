@@ -24,6 +24,14 @@ INSTAGRAM_USER = CFG.get("instagram_user") or ""
 COLLECTIONS = dict(CFG.get("collections") or {})
 BLOCKED = set(CFG.get("blocked") or [])
 
+# For people who never sort saves into collections: ingest the whole "All posts" saved feed
+# as one pseudo-collection. The categorizer sorts every reel into topics and playbooks anyway,
+# so nothing depends on how (or whether) you organized them on Instagram.
+ALL_SAVED = "all saved"
+INGEST_ALL_SAVED = bool(CFG.get("ingest_all_saved", False)) and not ({"all-posts", ALL_SAVED} & BLOCKED)
+if INGEST_ALL_SAVED and INSTAGRAM_USER:
+    COLLECTIONS.setdefault(ALL_SAVED, f"https://www.instagram.com/{INSTAGRAM_USER}/saved/all-posts/")
+
 IG_APP_ID = "936619743392459"                     # Instagram web app id, same for everyone
 REQUEST_GAP_S = float(CFG.get("rate_limit_s", 1.0))
 MAX_NEW_PER_RUN = int(CFG.get("max_new_per_run", 100))
@@ -38,6 +46,9 @@ EFFORTS = ["5 min", "1 hour", "weekend", "ongoing"]
 
 
 def allowed(collection: str) -> None:
+    if collection == ALL_SAVED and not INGEST_ALL_SAVED:
+        raise SystemExit(f"'{ALL_SAVED}' is off. Set `ingest_all_saved: true` in {CONFIG_PATH.name} "
+                         f"(and keep `all-posts` out of `blocked:`) to ingest every saved post.")
     if collection in BLOCKED or collection not in COLLECTIONS:
         raise SystemExit(f"'{collection}' is not an allowed collection (add it under `collections:` in "
                          f"{CONFIG_PATH.name}, and keep it out of `blocked:`)")

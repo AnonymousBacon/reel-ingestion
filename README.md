@@ -17,7 +17,7 @@ work for free. Three small Sonnet subagents do the parts that need judgment.
 
 ```mermaid
 flowchart TD
-    A["ig.py list + fetch<br/>saved collection only, ~1 req/s"] --> B["process.py<br/>Whisper · frames · OCR · gh api"]
+    A["ig.py sync<br/>collection feed, ~20 reels/request"] --> B["process.py<br/>Whisper · frames · OCR · gh api"]
     B -->|brief.json| C["transcript-verifier<br/>fixes misheard names"]
     B -->|brief.json| D["repo-finder<br/>official links, real stars"]
     C --> E["reel-categorizer<br/>topics, relevance, note.json"]
@@ -33,8 +33,8 @@ flowchart TD
 
 | Step | Who | Tokens |
 |---|---|---|
-| List and download reels (Playwright, your own login) | `pipeline/ig.py` | none |
-| Transcribe, grab frames, OCR, check GitHub repos | `pipeline/process.py` | none |
+| Page through the collection feed: metadata + audio, ~20 reels per request (Playwright, your own login) | `pipeline/ig.py` | none |
+| Transcribe, grab frames straight from the video URL (no video download), OCR, check GitHub repos | `pipeline/process.py` | none |
 | Fix misheard names using subtitles and frames | `transcript-verifier` agent | small |
 | Find official links, check hype, note risks | `repo-finder` agent | small–medium |
 | Pick topics and relevance, draft the note | `reel-categorizer` agent | small |
@@ -70,6 +70,10 @@ cd pipeline
 ~/reel-pipeline/.venv/bin/python ig.py collections     # prints your saved collections
 ```
 Paste the collections you want into `collections:` in `config.yaml`. Anything not listed is never touched.
+
+**No collections?** Set `ingest_all_saved: true` and run `ig.py sync "all saved"`. It pages through
+everything you've saved, and the categorizer sorts each reel into topics and playbooks, so you don't
+need to organize anything on Instagram.
 
 ## Run it
 Open Claude Code in this folder and say:
@@ -107,7 +111,7 @@ types your password; you log in yourself.
 
 ## Layout
 ```
-pipeline/       config.py · ig.py · process.py · vault.py
+pipeline/       config.py · ig.py · media.py · process.py · vault.py
 .claude/agents/ transcript-verifier · repo-finder · reel-categorizer (all model: sonnet)
 template/       vault skeleton used by `vault.py init`
 config.example.yaml

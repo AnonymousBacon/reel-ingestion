@@ -50,6 +50,8 @@ Rules:
   playbook once per batch (`<vault>/Paths/<name>.md`). If an existing step already covers the reel,
   set `playbook_skip` instead of `playbook_step`. Use `playbook: null` for jokes and vibes; the
   renderer lists relevance-1 reels with no playbook under "Nothing to act on".
+- **Sort by content, not by collection:** `brief.collection` is just where the reel was saved (often
+  "all saved", which says nothing). Pick topics and the playbook from what the reel shows.
 - **Title:** name what it does, like "Vimium", "Legal checklist for your app" or "ML security roadmap".
 - Write plainly: short sentences, no hype words, define jargon on first use. Leave optional keys out when empty.
 - Don't copy the caption or transcript. The renderer adds those.

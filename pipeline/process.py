@@ -9,6 +9,7 @@ brief.json that is the ONLY file the agents need to read.
 import json, re, subprocess, sys
 from datetime import datetime, timezone
 from config import DATA, WHISPER_MODEL, allowed
+from media import streams
 
 URL_RE = re.compile(r"https?://[^\s)\]>\"']+")
 GH_RE = re.compile(r"github\.com/([A-Za-z0-9-]+/[A-Za-z0-9_.-]+)")
@@ -21,12 +22,21 @@ def sh(*cmd):
     subprocess.run(cmd, check=True, capture_output=True)
 
 
+def video_src(d):
+    """Local video.mp4 (older runs) or the CDN URL saved in meta.json. ffmpeg reads the URL
+    with range requests, so frame grabs fetch only the bytes they need."""
+    if (d / "video.mp4").exists():
+        return str(d / "video.mp4")
+    meta = json.loads((d / "meta.json").read_text())
+    return meta.get("_video_url") or streams(meta)[1]
+
+
 def transcribe(d):
-    src = d / "audio.m4a" if (d / "audio.m4a").exists() else d / "video.mp4"
-    if not src.exists():
+    src = str(d / "audio.m4a") if (d / "audio.m4a").exists() else video_src(d)
+    if not src:
         return "", []
     wav = d / "audio.wav"
-    sh("ffmpeg", "-y", "-i", str(src), "-ar", "16000", "-ac", "1", str(wav))
+    sh("ffmpeg", "-y", "-i", src, "-vn", "-ar", "16000", "-ac", "1", str(wav))
     import mlx_whisper
     r = mlx_whisper.transcribe(str(wav), path_or_hf_repo=WHISPER_MODEL, language="en")
     text = r["text"].strip()
@@ -41,15 +51,16 @@ def transcribe(d):
 
 def frames(d, duration):
     imgs = sorted(d.glob("img_*.jpg"))
-    if imgs or not (d / "video.mp4").exists():
+    src = None if imgs else video_src(d)
+    if not src:
         return imgs
     n = max(3, min(8, round(duration / 8)))
     out = []
     for i in range(n):
         t = duration * (i + 0.5) / n
         f = d / f"frame_{i}.jpg"
-        sh("ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", str(d / "video.mp4"),
-           "-frames:v", "1", "-vf", "scale=720:-2", str(f))
+        if not f.exists():   # -ss before -i seeks without reading the whole stream
+            sh("ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", src, "-frames:v", "1", "-vf", "scale=720:-2", str(f))
         out.append(f)
     return out
 
